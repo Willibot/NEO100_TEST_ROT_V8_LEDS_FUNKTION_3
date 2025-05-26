@@ -323,8 +323,11 @@ void handle_state(void) {
         previous_state = current_state;
         current_state = STATE_FLASH_BLUE;
         last_flash_start_time = 0;
-        interrupt_triggered = 0; // <-- HIER sofort zurücksetzen!
+        interrupt_triggered = 0;
     }
+
+    // Debug: Zeige aktuellen State an PA8
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, (current_state == STATE_FLASH_BLUE) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
     switch (current_state) {
         case STATE_CIRCLE_MODE:
@@ -382,10 +385,6 @@ void handle_state(void) {
                 current_state = previous_state;
                 last_flash_start_time = 0;
             }
-            break;
-
-        default:
-            current_state = STATE_CIRCLE_MODE;
             break;
     }
 }
