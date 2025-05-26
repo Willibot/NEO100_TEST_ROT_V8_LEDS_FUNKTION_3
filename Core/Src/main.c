@@ -322,8 +322,9 @@ void handle_state(void) {
     if (interrupt_triggered && current_state != STATE_FLASH_BLUE) {
         previous_state = current_state;
         current_state = STATE_FLASH_BLUE;
-        last_flash_start_time = 0;
+        last_flash_start_time = HAL_GetTick(); // Sofort setzen!
         interrupt_triggered = 0;
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Flash-Blue aktiv
     }
 
     // Debug: Zeige aktuellen State an PA8
@@ -360,13 +361,11 @@ void handle_state(void) {
             break;
 
         case STATE_FLASH_BLUE:
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Flash-Blue aktiv
             if (is_updating) {
                 HAL_DMA_Abort_IT(&hdma_tim3_ch2);
                 HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
                 is_updating = 0;
             }
-
             // Setze alle LEDs auf Blau
             for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
                 leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
@@ -374,16 +373,10 @@ void handle_state(void) {
                 leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
             }
             led_start_transfer();
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Debug: LEDs sollten jetzt blau sein
 
-            if (last_flash_start_time == 0)
-                last_flash_start_time = current_time;
-
-            if (current_time - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
+            if (HAL_GetTick() - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
                 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // Flash-Blue beendet
-                interrupt_triggered = 0;
                 current_state = previous_state;
-                last_flash_start_time = 0;
             }
             break;
     }
@@ -403,10 +396,9 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim) {
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-    if (GPIO_Pin == GPIO_PIN_1) {
-        // Interrupt an PA1 erkannt
+    if (GPIO_Pin == GPIO_PIN_1 && current_state != STATE_FLASH_BLUE) {
         interrupt_triggered = 1;
-        interrupt_flash_timer = 0; // Timer zurücksetzen
+        interrupt_flash_timer = 0;
     }
 }
 /* USER CODE END 4 */
