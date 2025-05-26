@@ -69,8 +69,8 @@ volatile uint8_t interrupt_triggered = 0; // Flag für Interrupt an PA1
 volatile uint32_t interrupt_flash_timer = 0; // Timer für blauen Flash
 
 // FSM Variablen
-State_t current_state = STATE_CIRCLE_MODE;
-State_t previous_state = STATE_CIRCLE_MODE; // Für Rückkehr nach Flash Blue
+volatile State_t current_state = STATE_CIRCLE_MODE;
+volatile State_t previous_state = STATE_CIRCLE_MODE;
 uint32_t state_timer = 0; // Timer für Zustandsdauer
 uint32_t rgb_cycle_timer = 0; // Timer für RGB-Zyklus
 uint32_t circle_mode_timer = 0; // Timer für Kreis-Modus
