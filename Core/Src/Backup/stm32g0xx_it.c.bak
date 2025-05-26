@@ -16,6 +16,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32g0xx_it.h"
+#include "ws2812.h"
+#include "dma.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -53,7 +55,6 @@ static uint32_t systick_counter = 0; // Für PA8 Toggle mit 500 Hz
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_tim3_ch2;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -153,6 +154,25 @@ void DMA1_Channel1_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
 
   /* USER CODE END DMA1_Channel1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles EXTI line 0 and 1 interrupts (für PA1).
+  */
+void EXTI0_1_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI0_1_IRQn 0 */
+  uint32_t current_time = HAL_GetTick();
+  if (current_time - last_interrupt_time >= DEBOUNCE_TIME_MS) {
+    // Debug: Toggeln von PA11, um zu überprüfen, ob der Interrupt ausgelöst wird
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11);
+    last_interrupt_time = current_time;
+  }
+  /* USER CODE END EXTI0_1_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
+  /* USER CODE BEGIN EXTI0_1_IRQn 1 */
+
+  /* USER CODE END EXTI0_1_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
