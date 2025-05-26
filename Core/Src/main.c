@@ -314,7 +314,6 @@ void Error_Handler(void) {
   */
 void handle_state(void) {
     static uint32_t last_circle_update_time = 0;
-    static uint32_t last_flash_start_time = 0;
 
     uint32_t current_time = HAL_GetTick();
 
