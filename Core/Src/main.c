@@ -250,9 +250,10 @@ uint8_t led_start_transfer(void) {
 int main(void) {
     HAL_Init();
     SystemClock_Config();
-    MX_GPIO_Init(); // GPIO-Initialisierung für PA1
-    MX_DMA_Init();
-    MX_TIM3_Init();
+    MX_GPIO_Init();
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Test
+    HAL_Delay(2000);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
 
     // SysTick-Konfiguration (1 ms Interrupt)
     HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
@@ -377,7 +378,7 @@ void handle_state(void) {
                 leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
             }
             led_start_transfer();
-            HAL_Delay(1000);
+            HAL_Delay(2000);
 
             if (HAL_GetTick() - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
                 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // Flash-Blue beendet
