@@ -14,11 +14,14 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
+
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32g0xx_hal.h"
 #include "dma.h"
 #include "tim.h"
-#include "gpio.h"
+#include "ws2812.h"
+#include "gpio.h" // Für MX_GPIO_Init
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -51,13 +54,39 @@ typedef enum {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+uint8_t leds_color_data[LED_CFG_BYTES_PER_LED * LED_CFG_COUNT]; // LED-Farbpuffer (R,G,B)
+uint32_t dma_buffer[2 * LED_CFG_LEDS_PER_DMA_IRQ * LED_CFG_BYTES_PER_LED * 8]; // DMA-Puffer
+volatile uint8_t is_updating = 0;    // Übertragung läuft
+volatile uint32_t led_cycles_cnt;    // Zählt übertragene LED-Zyklen
+volatile uint8_t brightness = 0xFF;  // Helligkeit (0-255)
+volatile uint32_t color_counter = 0; // Farbzyklus-Zähler (0: Rot, 1: Grün, 2: Blau)
+float fade_value = 0.0f;            // Fading-Wert (0.0-255.0)
+float fade_step = 0.0f;             // Fading-Schritt (wird berechnet)
+volatile uint8_t cycle_count = 0;    // Zählt die Farbzyklen (nach 3 Zyklen Moduswechsel)
+volatile uint8_t in_circle_mode = 0; // Flag für Kreis-Modus
+volatile uint8_t red_led_index = 0;  // Index der roten LED im Kreis-Modus
+volatile uint8_t interrupt_triggered = 0; // Flag für Interrupt an PA1
+volatile uint32_t interrupt_flash_timer = 0; // Timer für blauen Flash
 
+// FSM Variablen
+volatile int current_state = STATE_CIRCLE_MODE;
+volatile int previous_state = STATE_CIRCLE_MODE;
+uint32_t state_timer = 0; // Timer für Zustandsdauer
+uint32_t rgb_cycle_timer = 0; // Timer für RGB-Zyklus
+uint32_t circle_mode_timer = 0; // Timer für Kreis-Modus
+uint32_t last_update_time = 0; // Für Timing-Kontrolle
+uint32_t last_fading_time = 0; // Für Fading-Timing
+uint32_t last_circle_update_time = 0; // Für Kreis-Modus-Timing
+uint32_t last_flash_start_time = 0; // Für Timing des blauen Flashes
+uint32_t last_rgb_cycle_start_time = 0; // Für Timing des RGB-Zyklus
+uint32_t last_color_change_time = 0; // Für Timing des Farbwechsels
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void handle_state(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -215,95 +244,144 @@ uint8_t led_start_transfer(void) {
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
+  * @brief  Der Einstiegspunkt der Anwendung.
   * @retval int
   */
-int main(void)
-{
+int main(void) {
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init(); // GPIO-Initialisierung für PA1
+    MX_DMA_Init();
+    MX_TIM3_Init();
 
-  /* USER CODE BEGIN 1 */
+    // SysTick-Konfiguration (1 ms Interrupt)
+    HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq() / 1000);
+    HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(SysTick_IRQn);
 
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
-  SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_TIM3_Init();
-  /* USER CODE BEGIN 2 */
-
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
+    while (1) {
+        uint32_t current_time = HAL_GetTick();
+        if (current_time - last_update_time >= 1) { // 1 ms Schleifenintervall
+            handle_state();
+            last_update_time = current_time;
+        }
+    }
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
+  * @brief Systemtakt-Konfiguration
+  * @retval Keine
   */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+void SystemClock_Config(void) {
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
+    HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
+    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+    RCC_OscInitStruct.PLL.PLLN = 8;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+    HAL_RCC_OscConfig(&RCC_OscInitStruct);
+
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+    HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
+}
+
+/**
+  * @brief  Diese Funktion wird bei Fehlern ausgeführt.
+  * @retval Keine
   */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+void Error_Handler(void) {
+    __disable_irq();
+    while (1) {
+    }
+}
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
+/**
+  * @brief  Behandelt die Finite State Machine (FSM) für die LED-Steuerung
+  * @retval Keine
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+void handle_state(void) {
+    static uint32_t last_circle_update_time = 0;
+    static uint32_t last_flash_start_time = 0;
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+    uint32_t current_time = HAL_GetTick();
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    // INTERRUPT-HANDLING VOR DEM SWITCH!
+    if (interrupt_triggered && current_state != STATE_FLASH_BLUE) {
+        previous_state = current_state;
+        current_state = STATE_FLASH_BLUE;
+        last_flash_start_time = HAL_GetTick(); // Sofort setzen!
+        interrupt_triggered = 0;
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Flash-Blue aktiv
+    }
+
+    // Debug: Zeige aktuellen State an PA8
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, (current_state == STATE_FLASH_BLUE) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    switch (current_state) {
+        case STATE_CIRCLE_MODE:
+            // Kreis-Modus: Rosa LED wandert alle 67 ms
+            if (current_time - last_circle_update_time >= CIRCLE_UPDATE_INTERVAL_MS) {
+                if (is_updating) {
+                    HAL_DMA_Abort_IT(&hdma_tim3_ch2);
+                    HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+                    is_updating = 0;
+                }
+
+                // Setze alle LEDs auf Schwarz (aus)
+                for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
+                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00; // Rot
+                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
+                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
+                }
+
+                // Setze die aktuelle Position der rosa LED (R=255, G=0, B=128)
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 2] = 0x80; // Blau (128)
+
+                // Im Kreis-Modus die LED weiterbewegen
+                red_led_index = (red_led_index + 1) % LED_CFG_COUNT;
+                led_start_transfer();
+
+                last_circle_update_time = current_time;
+            }
+            break;
+
+        case STATE_FLASH_BLUE:
+            if (is_updating) {
+                HAL_DMA_Abort_IT(&hdma_tim3_ch2);
+                HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+                is_updating = 0;
+            }
+            // Setze alle LEDs auf Blau
+            for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
+            }
+            // Test: Setze PA11 HIGH, wenn alle LEDs auf Blau gesetzt wurden
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+            led_start_transfer();
+
+            if (HAL_GetTick() - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
+                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET); // Flash-Blue beendet
+                current_state = previous_state;
+            }
+            break;
+    }
 }
 
 /* USER CODE BEGIN 4 */
@@ -332,34 +410,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 }
 /* USER CODE END 4 */
 
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
-}
-
 #ifdef  USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
+  * @brief  Meldet den Namen der Quelldatei und die Zeilennummer des Fehlers.
+  * @param  file: Zeiger auf den Namen der Quelldatei
+  * @param  line: Zeilennummer des Fehlers
+  * @retval Keine
   */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+void assert_failed(uint8_t *file, uint32_t line) {
+    while (1) {
+    }
 }
 #endif /* USE_FULL_ASSERT */

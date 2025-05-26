@@ -34,6 +34,8 @@ extern "C" {
 
 /* USER CODE END Includes */
 
+extern DMA_HandleTypeDef hdma_tim3_ch2;
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
@@ -49,4 +51,3 @@ void MX_DMA_Init(void);
 #endif
 
 #endif /* __DMA_H__ */
-
