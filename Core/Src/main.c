@@ -349,6 +349,7 @@ void handle_state(void) {
             break;
 
         case STATE_FLASH_BLUE:
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET); // Debug: Flash-Blue aktiv
             if (is_updating) {
                 HAL_DMA_Abort_IT(&hdma_tim3_ch2);
                 HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
@@ -367,6 +368,7 @@ void handle_state(void) {
                 last_flash_start_time = current_time;
 
             if (current_time - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
+                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET); // Debug: Flash-Blue beendet
                 interrupt_triggered = 0;
                 current_state = previous_state;
                 last_flash_start_time = 0;
