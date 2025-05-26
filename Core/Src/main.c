@@ -313,10 +313,17 @@ void Error_Handler(void) {
   * @retval Keine
   */
 void handle_state(void) {
-    static uint32_t last_circle_update_time = 0; // Für Kreis-Modus-Timing
-    static uint32_t last_flash_start_time = 0; // Für Timing des blauen Flashes
+    static uint32_t last_circle_update_time = 0;
+    static uint32_t last_flash_start_time = 0;
 
     uint32_t current_time = HAL_GetTick();
+
+    // INTERRUPT-HANDLING VOR DEM SWITCH!
+    if (interrupt_triggered && current_state != STATE_FLASH_BLUE) {
+        previous_state = current_state;
+        current_state = STATE_FLASH_BLUE;
+        last_flash_start_time = 0;
+    }
 
     switch (current_state) {
         case STATE_CIRCLE_MODE:
@@ -378,13 +385,6 @@ void handle_state(void) {
         default:
             current_state = STATE_CIRCLE_MODE;
             break;
-    }
-
-    // Interrupt-Handling
-    if (interrupt_triggered && current_state != STATE_FLASH_BLUE) {
-        previous_state = current_state;
-        current_state = STATE_FLASH_BLUE;
-        last_flash_start_time = 0;
     }
 }
 
