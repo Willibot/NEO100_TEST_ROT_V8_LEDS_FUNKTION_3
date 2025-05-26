@@ -404,7 +404,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_12); // Sollte bei jedem Interrupt toggeln
 
     if (interrupt_triggered) {
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11); // Sollte toggeln, wenn das Flag erkannt wird
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11);
     }
 }
 /* USER CODE END 4 */
