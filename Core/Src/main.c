@@ -322,7 +322,7 @@ void handle_state(void) {
         previous_state = current_state;
         current_state = STATE_FLASH_BLUE;
         last_flash_start_time = HAL_GetTick();
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11); // Debug: Zeitstempel gesetzt
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11); // Statewechsel!
         interrupt_triggered = 0;
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Flash-Blue aktiv
     }
@@ -361,7 +361,10 @@ void handle_state(void) {
             break;
 
         case STATE_FLASH_BLUE:
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Debug: Wir sind im Flash-Blue-State!
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Wir sind im Flash-Blue-State!
+            // Nach led_start_transfer();
+            HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8); // Transfer gestartet
+
             if (is_updating) {
                 HAL_DMA_Abort_IT(&hdma_tim3_ch2);
                 HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
