@@ -372,6 +372,8 @@ void handle_state(void) {
                 leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
                 leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
             }
+            // Test: Setze PA11 HIGH, wenn alle LEDs auf Blau gesetzt wurden
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
             led_start_transfer();
 
             if (HAL_GetTick() - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
