@@ -33,9 +33,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-    STATE_INIT,         // Initialisierung: LEDs auf Rot setzen
-    STATE_RGB_CYCLE,    // Farbwechsel: Rot → Grün → Blau mit Fading
-    STATE_CIRCLE_MODE,  // Kreis-Modus: Rote LED wandert, andere ausgeschaltet
+    STATE_CIRCLE_MODE,  // Kreis-Modus: Rosa LED wandert, andere aus
     STATE_FLASH_BLUE    // Blauer Flash bei Interrupt
 } State_t;
 /* USER CODE END PTD */
@@ -71,8 +69,8 @@ volatile uint8_t interrupt_triggered = 0; // Flag für Interrupt an PA1
 volatile uint32_t interrupt_flash_timer = 0; // Timer für blauen Flash
 
 // FSM Variablen
-State_t current_state = STATE_INIT;
-State_t previous_state = STATE_INIT; // Für Rückkehr nach Flash Blue
+State_t current_state = STATE_CIRCLE_MODE;
+State_t previous_state = STATE_CIRCLE_MODE; // Für Rückkehr nach Flash Blue
 uint32_t state_timer = 0; // Timer für Zustandsdauer
 uint32_t rgb_cycle_timer = 0; // Timer für RGB-Zyklus
 uint32_t circle_mode_timer = 0; // Timer für Kreis-Modus
@@ -315,139 +313,34 @@ void Error_Handler(void) {
   * @retval Keine
   */
 void handle_state(void) {
-    static uint32_t last_fading_time = 0; // Für Fading-Timing
     static uint32_t last_circle_update_time = 0; // Für Kreis-Modus-Timing
     static uint32_t last_flash_start_time = 0; // Für Timing des blauen Flashes
-    static uint32_t last_rgb_cycle_start_time = 0; // Für Timing des RGB-Zyklus
-    static uint32_t last_color_change_time = 0; // Für Timing des Farbwechsels
 
     uint32_t current_time = HAL_GetTick();
 
     switch (current_state) {
-        case STATE_INIT:
-            // Setze alle LEDs auf Rot
-            for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot
-                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
-                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
-            }
-            led_start_transfer();
-            // Wechsle zum RGB-Zyklus
-            current_state = STATE_RGB_CYCLE;
-            rgb_cycle_timer = 0;
-            state_timer = 0;
-            color_counter = 0;
-            cycle_count = 0;
-            last_rgb_cycle_start_time = current_time; // Setze Startzeitpunkt des RGB-Zyklus
-            last_color_change_time = current_time; // Setze Startzeitpunkt des ersten Farbwechsels
-            fade_value = 0.0f; // Starte Fading bei 0
-            brightness = 0xFF; // Starte bei voller Helligkeit
-            fade_step = (255.0f / (RGB_CYCLE_DURATION_MS / FADING_INTERVAL_MS)); // Fading über 9 Sekunden
-            break;
-
-        case STATE_RGB_CYCLE:
-            // Farbwechsel alle 1000 ms
-            if (current_time - last_color_change_time >= COLOR_CHANGE_INTERVAL_MS) {
-                state_timer = 0;
-                color_counter++;
-
-                if (is_updating) {
-                    HAL_DMA_Abort_IT(&hdma_tim3_ch2);
-                    HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
-                    is_updating = 0;
-                }
-
-                // Setze Farben für den neuen Zyklus
-                for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                    switch (color_counter % 3) {
-                        case 0: // Rot
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0xFF;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                            break;
-                        case 1: // Grün
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0xFF;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                            break;
-                        case 2: // Blau
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
-                            break;
-                    }
-                }
-
-                led_start_transfer();
-                last_color_change_time = current_time;
-            }
-
-            // Fading alle 10 ms (kontinuierlich über den RGB-Zyklus)
-            if (current_time - last_fading_time >= FADING_INTERVAL_MS) {
-                if (is_updating) {
-                    return;
-                }
-
-                fade_value += fade_step;
-                if (fade_value > 255.0f) {
-                    fade_value = 255.0f;
-                    fade_step = -fade_step;
-                } else if (fade_value < 0.0f) {
-                    fade_value = 0.0f;
-                    fade_step = -fade_step;
-                }
-                brightness = (uint8_t)(quad_calc(fade_value / 255.0f) * 0xFF);
-                if (brightness == 0) brightness = 1; // Minimaler Wert
-
-                // Fading nur im RGB-Zyklus anwenden
-                for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                    if (!in_circle_mode) {
-                        leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = (uint8_t)(((uint32_t)leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] * brightness) / 0xFF);
-                        leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = (uint8_t)(((uint32_t)leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] * brightness) / 0xFF);
-                        leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = (uint8_t)(((uint32_t)leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] * brightness) / 0xFF);
-                    }
-                }
-                led_start_transfer();
-
-                last_fading_time = current_time;
-            }
-
-            // Nach 9 Sekunden in den Kreis-Modus wechseln (basierend auf der verstrichenen Zeit)
-            if (current_time - last_rgb_cycle_start_time >= RGB_CYCLE_DURATION_MS) {
-                current_state = STATE_CIRCLE_MODE;
-                in_circle_mode = 1;
-                red_led_index = 0;
-                circle_mode_timer = 0;
-                state_timer = 0;
-                brightness = 0xFF; // Setze Helligkeit für Kreis-Modus auf volle Helligkeit
-            }
-            break;
-
         case STATE_CIRCLE_MODE:
-            // Kreis-Modus: Rote LED wandert alle 67 ms
+            // Kreis-Modus: Rosa LED wandert alle 67 ms
             if (current_time - last_circle_update_time >= CIRCLE_UPDATE_INTERVAL_MS) {
-                state_timer = 0;
-                circle_mode_timer++;
-
                 if (is_updating) {
                     HAL_DMA_Abort_IT(&hdma_tim3_ch2);
                     HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
                     is_updating = 0;
                 }
 
-                // Setze alle LEDs auf Schwarz (ausgeschaltet)
+                // Setze alle LEDs auf Schwarz (aus)
                 for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
                     leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00; // Rot
                     leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
                     leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
                 }
 
-                // Setze die aktuelle Position der roten LED bei voller Helligkeit
-                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot (volle Helligkeit)
+                // Setze die aktuelle Position der rosa LED (R=255, G=0, B=128)
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot
                 leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
-                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 2] = 0x80; // Blau (128)
 
-                // Im Kreis-Modus die rote LED weiterbewegen
+                // Im Kreis-Modus die LED weiterbewegen
                 red_led_index = (red_led_index + 1) % LED_CFG_COUNT;
                 led_start_transfer();
 
@@ -456,81 +349,32 @@ void handle_state(void) {
             break;
 
         case STATE_FLASH_BLUE:
-            if (state_timer == 0) {
-                if (is_updating) {
-                    HAL_DMA_Abort_IT(&hdma_tim3_ch2);
-                    HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
-                    is_updating = 0;
-                }
-
-                // Debug: Setze PA11 auf High, um zu überprüfen, ob der Zustand erreicht wird
-                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
-
-                // Setze alle LEDs auf Blau
-                for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                    leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
-                }
-                led_start_transfer();
-
-                last_flash_start_time = current_time; // Speichere den Startzeitpunkt des Flashes
+            if (is_updating) {
+                HAL_DMA_Abort_IT(&hdma_tim3_ch2);
+                HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+                is_updating = 0;
             }
 
+            // Setze alle LEDs auf Blau
+            for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
+                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
+            }
+            led_start_transfer();
+
+            if (last_flash_start_time == 0)
+                last_flash_start_time = current_time;
+
             if (current_time - last_flash_start_time >= FLASH_BLUE_DURATION_MS) {
-                state_timer = 0;
                 interrupt_triggered = 0;
                 current_state = previous_state;
-
-                // Debug: Setze PA11 zurück auf Low
-                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
-
-                // Farben basierend auf vorherigem Zustand zurücksetzen
-                if (current_state == STATE_RGB_CYCLE) {
-                    for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                        switch (color_counter % 3) {
-                            case 0: // Rot
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0xFF;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                                break;
-                            case 1: // Grün
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0xFF;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                                break;
-                            case 2: // Blau
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                                leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0xFF;
-                                break;
-                        }
-                    }
-                    // Setze Fading zurück für neuen Farbwechsel
-                    fade_value = 0.0f;
-                    brightness = 0xFF;
-                    fade_step = (255.0f / (RGB_CYCLE_DURATION_MS / FADING_INTERVAL_MS)); // Fading über 9 Sekunden
-                    last_color_change_time = current_time;
-                } else if (current_state == STATE_CIRCLE_MODE) {
-                    for (size_t i = 0; i < LED_CFG_COUNT; ++i) {
-                        if (i == red_led_index) {
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot (volle Helligkeit)
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                        } else {
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 0] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 1] = 0x00;
-                            leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00;
-                        }
-                    }
-                    brightness = 0xFF; // Setze Helligkeit für Kreis-Modus auf volle Helligkeit
-                }
-                led_start_transfer();
+                last_flash_start_time = 0;
             }
             break;
 
         default:
-            current_state = STATE_INIT;
+            current_state = STATE_CIRCLE_MODE;
             break;
     }
 
@@ -538,10 +382,8 @@ void handle_state(void) {
     if (interrupt_triggered && current_state != STATE_FLASH_BLUE) {
         previous_state = current_state;
         current_state = STATE_FLASH_BLUE;
-        state_timer = 0;
+        last_flash_start_time = 0;
     }
-
-    state_timer++;
 }
 
 /* USER CODE BEGIN 4 */
