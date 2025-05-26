@@ -33,8 +33,8 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-    STATE_CIRCLE_MODE,  // Kreis-Modus: Rosa LED wandert, andere aus
-    STATE_FLASH_BLUE    // Blauer Flash bei Interrupt
+    STATE_CIRCLE_MODE = 0,
+    STATE_FLASH_BLUE = 1
 } State_t;
 /* USER CODE END PTD */
 
@@ -69,8 +69,8 @@ volatile uint8_t interrupt_triggered = 0; // Flag für Interrupt an PA1
 volatile uint32_t interrupt_flash_timer = 0; // Timer für blauen Flash
 
 // FSM Variablen
-volatile State_t current_state = STATE_CIRCLE_MODE;
-volatile State_t previous_state = STATE_CIRCLE_MODE;
+volatile int current_state = STATE_CIRCLE_MODE;
+volatile int previous_state = STATE_CIRCLE_MODE;
 uint32_t state_timer = 0; // Timer für Zustandsdauer
 uint32_t rgb_cycle_timer = 0; // Timer für RGB-Zyklus
 uint32_t circle_mode_timer = 0; // Timer für Kreis-Modus
@@ -401,6 +401,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if (GPIO_Pin == GPIO_PIN_1 && current_state != STATE_FLASH_BLUE) {
         interrupt_triggered = 1;
         interrupt_flash_timer = 0;
+    }
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_12); // Sollte bei jedem Interrupt toggeln
+
+    if (interrupt_triggered) {
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11); // Sollte toggeln, wenn das Flag erkannt wird
     }
 }
 /* USER CODE END 4 */
