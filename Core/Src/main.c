@@ -398,11 +398,12 @@ void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim) {
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_SET); // Test: Immer HIGH bei Interrupt
+
     if (GPIO_Pin == GPIO_PIN_1 && current_state != STATE_FLASH_BLUE) {
         interrupt_triggered = 1;
         interrupt_flash_timer = 0;
     }
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_12); // Sollte bei jedem Interrupt toggeln
 
     if (interrupt_triggered) {
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_11);
