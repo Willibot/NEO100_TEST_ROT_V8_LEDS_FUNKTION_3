@@ -348,10 +348,10 @@ void handle_state(void) {
                     leds_color_data[i * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
                 }
 
-                // Setze die aktuelle Position der grünen LED (R=0, G=255, B=0)
-                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 0] = 0x00; // Rot
-                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 1] = 0xFF; // Grün
-                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 2] = 0x00; // Blau
+                // Setze die aktuelle Position der rosa LED (R=255, G=0, B=128)
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 0] = 0xFF; // Rot
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 1] = 0x00; // Grün
+                leds_color_data[red_led_index * LED_CFG_BYTES_PER_LED + 2] = 0x80; // Blau (128)
 
                 // Im Kreis-Modus die LED weiterbewegen
                 red_led_index = (red_led_index + 1) % LED_CFG_COUNT;
